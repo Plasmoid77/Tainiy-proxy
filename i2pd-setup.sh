@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+export DEBIAN_FRONTEND=noninteractive
+export NEEDRESTART_MODE=a
+
 if [[ $EUID -ne 0 ]]; then
   echo "Run as root: sudo bash i2pd-setup.sh [PORT]" >&2
   exit 1

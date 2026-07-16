@@ -38,13 +38,13 @@ systemctl restart yggdrasil.service
 systemctl is-active --quiet yggdrasil.service
 
 yggdrasil \
-  -useconffile /etc/yggdrasil.conf \
+  -useconffile /etc/yggdrasil/yggdrasil.conf \
   -address \
   >/dev/null
 
 printf '\n\033[1;32m============================================================\033[0m\n'
 printf '\033[1;32m Yggdrasil installed and running.\033[0m\n'
 printf '\033[1;32m Address: %s\033[0m\n' \
-  "$(yggdrasil -useconffile /etc/yggdrasil.conf -address)"
-printf '\033[1;32m Config: /etc/yggdrasil.conf\033[0m\n'
+  "$(yggdrasil -useconffile /etc/yggdrasil/yggdrasil.conf -address)"
+printf '\033[1;32m Config: /etc/yggdrasil/yggdrasil.conf\033[0m\n'
 printf '\033[1;32m============================================================\033[0m\n'

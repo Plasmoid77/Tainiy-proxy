@@ -19,22 +19,15 @@ printf '\n\033[1;34m==> Installing Yggdrasil\033[0m\n'
 apt-get install -y ca-certificates dirmngr gnupg
 
 mkdir -p /usr/local/apt-keys
-
 gpg --fetch-keys https://neilalexander.s3.dualstack.eu-west-2.amazonaws.com/deb/key.txt
+gpg --export 1C5162E133015D81A811239D1840CDAC6011C5EA | sudo tee /usr/local/apt-keys/yggdrasil-keyring.gpg > /dev/null
 
-gpg --export 1C5162E133015D81A811239D1840CDAC6011C5EA \
-  > /usr/local/apt-keys/yggdrasil-keyring.gpg
-
-echo 'deb [signed-by=/usr/local/apt-keys/yggdrasil-keyring.gpg] https://neilalexander.s3.dualstack.eu-west-2.amazonaws.com/deb/ debian yggdrasil' \
-  > /etc/apt/sources.list.d/yggdrasil.list
+echo 'deb [signed-by=/usr/local/apt-keys/yggdrasil-keyring.gpg] https://neilalexander.s3.dualstack.eu-west-2.amazonaws.com/deb/ debian yggdrasil' > /etc/apt/sources.list.d/yggdrasil.list
 
 apt-get update
 apt-get install -y yggdrasil
 
 printf '\n\033[1;34m==> Configuring delayed i2pd startup\033[0m\n'
-
-rm -f /etc/systemd/system/i2pd.service.d/override.conf
-rm -f /etc/systemd/system/yggdrasil.service.d/override.conf
 
 cat > /etc/systemd/system/i2pd.timer <<'EOF'
 [Unit]

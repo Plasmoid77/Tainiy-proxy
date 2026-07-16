@@ -64,5 +64,4 @@ printf '\033[1;32m Transport port: %s TCP/UDP\033[0m\n' "$I2PD_PORT"
 printf '\033[1;32m Public interface: %s\033[0m\n' "$PUBLIC_IFACE"
 printf '\033[1;32m Service: i2pd.service\033[0m\n'
 printf '\033[1;32m Config: /etc/i2pd/i2pd.conf\033[0m\n'
-printf '\033[1;32m Run i2pd-timer-setup.sh next.\033[0m\n'
 printf '\033[1;32m============================================================\033[0m\n'

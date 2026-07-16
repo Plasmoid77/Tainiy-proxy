@@ -15,21 +15,18 @@ fi
 
 printf '\n\033[1;34m==> Installing i2pd\033[0m\n'
 
-apt-get update
 apt-get install -y apt-transport-https
 
-
-wget -q -O - https://repo.i2pd.xyz/.help/add_repo | bash -s -
+wget -q -O - \
+  https://repo.i2pd.xyz/.help/add_repo \
+  | bash -s -
 
 apt-get update
 apt-get install -y i2pd
 
-systemctl enable i2pd.service
-systemctl restart i2pd.service
-systemctl is-active --quiet i2pd.service
-
 printf '\n\033[1;32m============================================================\033[0m\n'
-printf '\033[1;32m i2pd installed and running.\033[0m\n'
+printf '\033[1;32m i2pd installed.\033[0m\n'
 printf '\033[1;32m Service: i2pd.service\033[0m\n'
 printf '\033[1;32m Config: /etc/i2pd/i2pd.conf\033[0m\n'
+printf '\033[1;32m Run i2pd-timer-setup.sh next.\033[0m\n'
 printf '\033[1;32m============================================================\033[0m\n'

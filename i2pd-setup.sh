@@ -30,7 +30,24 @@ if ! [[ $I2PD_PORT =~ ^[0-9]+$ ]] ||
   exit 1
 fi
 
-PUBLIC_IFACE="$(ip -4 route show default | awk '{print $5; exit}')"
+# Falls back through the IPv6 default route, then an explicit override, so
+# hosts without an IPv4 default route -- IPv6-only, or reachable only via a
+# meshnet transport such as Yggdrasil -- still get a scoped UFW rule instead
+# of a silently empty interface (which would otherwise make `ufw allow in on
+# ""` behave unpredictably).
+find_default_iface() {
+  awk '{ for (i = 1; i <= NF; i++) if ($i == "dev") { print $(i + 1); exit } }'
+}
+
+PUBLIC_IFACE="${PUBLIC_IFACE:-}"
+[ -n "$PUBLIC_IFACE" ] || PUBLIC_IFACE="$(ip -4 route show default | find_default_iface)"
+[ -n "$PUBLIC_IFACE" ] || PUBLIC_IFACE="$(ip -6 route show default | find_default_iface)"
+
+if [ -z "$PUBLIC_IFACE" ]; then
+  echo "Could not detect a default route interface (IPv4 or IPv6)." >&2
+  echo "Set PUBLIC_IFACE=<iface> and re-run." >&2
+  exit 1
+fi
 
 printf '\n\033[1;34m==> Installing i2pd\033[0m\n'
 

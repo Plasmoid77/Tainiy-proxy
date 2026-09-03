@@ -40,6 +40,8 @@ Client-only mode (`ClientOnly 1`), no relaying of others' traffic. SOCKS5 proxy 
 
 The script picks a random port (10000–65535) unless you pass one, writes it into `i2pd.conf`'s global `port` setting, and opens matching TCP/UDP UFW rules on the detected default-route interface. It keeps a one-time backup of the original config at `i2pd.conf.orig` before editing.
 
+Interface detection tries the IPv4 default route first, then IPv6, so it also works on IPv6-only hosts. If neither exists — e.g. a host reachable only through a meshnet transport such as Yggdrasil, with no conventional default route — the script exits with an error instead of guessing; set `PUBLIC_IFACE=<iface>` before running it to override detection.
+
 The repo-add step (`repo.i2pd.xyz/.help/add_repo`) is i2pd's own official installer, piped into root Bash with no checksum pinning — it adds a permanent apt source and signing key, not a one-off action. Review it if that domain is not already trusted.
 
 ## Yggdrasil
@@ -53,3 +55,7 @@ Yggdrasil does not listen for incoming peer connections by default (`Listen` is 
 ## Validation
 
 Every push and pull request runs `.github/workflows/shellcheck.yml`, which checks all scripts with `bash -n` and ShellCheck.
+
+## License
+
+GPL-3.0-or-later — see [LICENSE](LICENSE).

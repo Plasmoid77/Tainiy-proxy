@@ -78,6 +78,25 @@ sed -i -E \
   "0,/^[[:space:]]*#?[[:space:]]*port[[:space:]]*=/{s|^[[:space:]]*#?[[:space:]]*port[[:space:]]*=.*$|port = $I2PD_PORT|}" \
   /etc/i2pd/i2pd.conf
 
+# The package's postinst already started i2pd.service with the pristine
+# (port-unset, randomly-chosen-port) config before this script ever ran, so
+# the edit above has no effect on the running daemon until it is restarted.
+# Verify the new port actually took before opening the firewall for it --
+# otherwise UFW would open a port nothing listens on, leaving the real
+# transport port unreachable behind the default-deny policy.
+systemctl restart i2pd
+
+for _ in {1..30}; do
+  ss -H -tln "sport = :$I2PD_PORT" | grep -q . && break
+  sleep 1
+done
+
+ss -H -tln "sport = :$I2PD_PORT" | grep -q . || {
+  echo "i2pd is not listening on TCP port $I2PD_PORT after restart." >&2
+  echo "Check: systemctl status i2pd ; journalctl -u i2pd -n 50" >&2
+  exit 1
+}
+
 printf '\n\033[1;34m==> Configuring i2pd firewall rules\033[0m\n'
 
 ufw allow in on "$PUBLIC_IFACE" \

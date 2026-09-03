@@ -42,7 +42,11 @@ EOF
 
 tor --verify-config -f /etc/tor/torrc >/dev/null
 
-systemctl enable tor@default.service
+# No `systemctl enable` here: tor@default.service ships without an [Install]
+# section on Debian. It is instead wired to tor.service (already enabled by
+# the package) at boot time by /usr/lib/systemd/system-generators/tor-generator,
+# which links it in automatically because /etc/tor/torrc exists. An explicit
+# enable is a no-op that only prints a "no installation config" warning.
 systemctl restart tor@default.service
 systemctl is-active --quiet tor@default.service
 

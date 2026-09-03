@@ -48,6 +48,8 @@ The repo-add step (`repo.i2pd.xyz/.help/add_repo`) is i2pd's own official instal
 
 Yggdrasil does not listen for incoming peer connections by default (`Listen` is empty out of the box) — it only makes outbound connections to the peers you configure, plus local discovery via multicast. No UFW rule is opened by this script because none is needed for that default, outbound-only mode. If you want your node to accept incoming peerings from the public network, add a `Listen` entry to `/etc/yggdrasil/yggdrasil.conf` yourself and open the matching port in UFW.
 
+**The script does not configure any peers, and `Peers` is empty in a fresh install.** The node gets its address and the service runs, but on a VPS there are no multicast neighbours to discover either, so it stays isolated from the network until you add peers yourself — the script prints a warning when it detects this. Pick current entries from [public-peers](https://github.com/yggdrasil-network/public-peers), add them to `Peers: []` in `/etc/yggdrasil/yggdrasil.conf`, then `systemctl restart yggdrasil` and confirm with `yggdrasilctl getPeers`.
+
 ## i2pd-timer-setup.sh
 
 `Wants=`/`After=yggdrasil.service` in the generated `i2pd.timer` only order when systemd *attempts* to start `i2pd.timer` relative to `yggdrasil.service` — they do not wait for Yggdrasil to be fully operational. This works out in practice because Yggdrasil derives its address from its own keys and assigns it immediately on start, well inside the 10-second delay. The timer only sequences startup order; it does not bind i2pd to Yggdrasil's interface or route i2pd's traffic through it.

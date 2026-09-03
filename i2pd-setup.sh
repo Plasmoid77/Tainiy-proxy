@@ -9,6 +9,7 @@ if [[ $EUID -ne 0 ]]; then
   exit 1
 fi
 
+# shellcheck disable=SC1091
 . /etc/os-release
 
 if [[ $ID != debian ]]; then
@@ -35,6 +36,10 @@ printf '\n\033[1;34m==> Installing i2pd\033[0m\n'
 
 apt-get install -y apt-transport-https ufw
 
+# i2pd's official repo-add script: fetched over HTTPS and run as root, no
+# checksum pinning (trust-on-first-use). It adds a permanent apt source and
+# signing key, not a one-off action — review it if this domain is not already
+# trusted: https://repo.i2pd.xyz/.help/add_repo
 wget -q -O - \
   https://repo.i2pd.xyz/.help/add_repo \
   | bash -s -
@@ -44,6 +49,14 @@ apt-get install -y i2pd
 
 printf '\n\033[1;34m==> Configuring i2pd transport port\033[0m\n'
 
+# One-time backup of the pristine config, kept across re-runs, so a bad edit
+# below can be diffed or restored by hand.
+[ -e /etc/i2pd/i2pd.conf.orig ] || cp -a /etc/i2pd/i2pd.conf /etc/i2pd/i2pd.conf.orig
+
+# Replaces the first "port =" line in the file: in the default i2pd.conf this
+# is the global NTCP2/SSU2 transport port, defined before any [section].
+# Fragile if upstream reorders the file — verify with `sshd -T`-style checks
+# after upgrades, i.e. confirm the running i2pd actually uses this port.
 sed -i -E \
   "0,/^[[:space:]]*#?[[:space:]]*port[[:space:]]*=/{s|^[[:space:]]*#?[[:space:]]*port[[:space:]]*=.*$|port = $I2PD_PORT|}" \
   /etc/i2pd/i2pd.conf

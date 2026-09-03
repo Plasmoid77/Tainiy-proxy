@@ -6,6 +6,7 @@ if [[ $EUID -ne 0 ]]; then
   exit 1
 fi
 
+# shellcheck disable=SC1091
 . /etc/os-release
 
 if [[ $ID != debian ]]; then
@@ -17,6 +18,12 @@ printf '\n\033[1;34m==> Configuring delayed i2pd startup\033[0m\n'
 
 cat > /etc/systemd/system/i2pd.timer <<'EOF'
 [Unit]
+# Wants=/After= only order unit *start attempts*; they do not wait for
+# Yggdrasil to be fully operational. This is fine here because Yggdrasil
+# derives its address from its own keys and assigns it immediately on start,
+# well inside the 10s OnActiveSec delay below. This timer only sequences
+# startup order — it does not bind i2pd to Yggdrasil's interface or route
+# i2pd traffic through it.
 Description=Start i2pd 10 seconds after Yggdrasil
 Wants=yggdrasil.service
 After=yggdrasil.service

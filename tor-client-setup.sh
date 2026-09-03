@@ -27,8 +27,18 @@ wget -qO- \
   | gpg --dearmor \
   > /usr/share/keyrings/deb.torproject.org-keyring.gpg
 
-echo "deb [signed-by=/usr/share/keyrings/deb.torproject.org-keyring.gpg] https://deb.torproject.org/torproject.org $VERSION_CODENAME main" \
-  > /etc/apt/sources.list.d/tor.list
+# Deb822 format, as in the current official Tor guide. Drop the one-line
+# tor.list an older revision of this script wrote, so apt does not end up
+# reading the same repository from two files.
+rm -f /etc/apt/sources.list.d/tor.list
+
+cat > /etc/apt/sources.list.d/tor.sources <<EOF
+Types: deb
+URIs: https://deb.torproject.org/torproject.org/
+Suites: $VERSION_CODENAME
+Components: main
+Signed-By: /usr/share/keyrings/deb.torproject.org-keyring.gpg
+EOF
 
 apt-get update
 apt-get install -y tor deb.torproject.org-keyring

@@ -1,4 +1,4 @@
-# TainiyProxy
+# Tainiy-proxy
 
 Four independent Bash installers for anonymity-network tooling on a Debian VPS: a Tor client, an i2pd router, a Yggdrasil mesh node, and a systemd timer that sequences i2pd's startup after Yggdrasil's.
 
@@ -26,41 +26,41 @@ Before piping a remote script into root Bash, inspect it if the server or reposi
 Run these on the server as root. Each script is independent; take only the ones you want.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Plasmoid77/TainiyProxy/main/tor-client-setup.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Plasmoid77/Tainiy-proxy/main/tor-client-setup.sh | bash
 ```
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Plasmoid77/TainiyProxy/main/i2pd-setup.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Plasmoid77/Tainiy-proxy/main/i2pd-setup.sh | bash
 ```
 
 `i2pd-setup.sh` takes an optional transport port; without one it picks a random port in `10000-65535`. Pass it after `bash -s --`:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Plasmoid77/TainiyProxy/main/i2pd-setup.sh | bash -s -- 59699
+curl -fsSL https://raw.githubusercontent.com/Plasmoid77/Tainiy-proxy/main/i2pd-setup.sh | bash -s -- 59699
 ```
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Plasmoid77/TainiyProxy/main/yggdrasil-setup.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Plasmoid77/Tainiy-proxy/main/yggdrasil-setup.sh | bash
 ```
 
 `i2pd-timer-setup.sh` expects both i2pd and Yggdrasil to be installed already, so run it last:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Plasmoid77/TainiyProxy/main/i2pd-timer-setup.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Plasmoid77/Tainiy-proxy/main/i2pd-timer-setup.sh | bash
 ```
 
 Everything at once, in dependency order:
 
 ```bash
 for s in tor-client-setup i2pd-setup yggdrasil-setup i2pd-timer-setup; do
-  curl -fsSL "https://raw.githubusercontent.com/Plasmoid77/TainiyProxy/main/$s.sh" | bash || break
+  curl -fsSL "https://raw.githubusercontent.com/Plasmoid77/Tainiy-proxy/main/$s.sh" | bash || break
 done
 ```
 
 To inspect a script before running it as root — advisable for anything piped from the network:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Plasmoid77/TainiyProxy/main/i2pd-setup.sh -o /tmp/i2pd-setup.sh
+curl -fsSL https://raw.githubusercontent.com/Plasmoid77/Tainiy-proxy/main/i2pd-setup.sh -o /tmp/i2pd-setup.sh
 less /tmp/i2pd-setup.sh
 bash /tmp/i2pd-setup.sh
 ```

@@ -50,6 +50,25 @@ Yggdrasil does not listen for incoming peer connections by default (`Listen` is 
 
 **The script does not configure any peers, and `Peers` is empty in a fresh install.** The node gets its address and the service runs, but on a VPS there are no multicast neighbours to discover either, so it stays isolated from the network until you add peers yourself — the script prints a warning when it detects this. Pick current entries from [public-peers](https://github.com/yggdrasil-network/public-peers), add them to `Peers: []` in `/etc/yggdrasil/yggdrasil.conf`, then `systemctl restart yggdrasil` and confirm with `yggdrasilctl getPeers`.
 
+### Reaching the server over Yggdrasil
+
+Once the node has peers, the server is reachable at its Yggdrasil address from any other Yggdrasil node, and ordinary services answer there as they would on any IPv6 address:
+
+```bash
+ssh -p <SSH_PORT> root@<SERVER_YGG_ADDRESS>
+```
+
+This needs no inbound port on the underlay, because the two layers are separate. Peering happens over outbound TCP connections to the peers listed in `Peers`, which is why `Listen` can stay empty. Traffic addressed to the node's `200::/7` address travels inside those already-open connections and surfaces on the server's `ygg0` interface as a normal IPv6 packet — from the kernel's point of view it is simply IPv6 arriving on an interface, so it goes through `INPUT` and UFW decides.
+
+That means UFW still governs which services answer over the mesh. A plain `ufw allow <port>/tcp` rule is not bound to a source or an interface, so it permits both the public path and the Yggdrasil one. To make a service reachable *only* over the mesh, scope the rule to the interface and drop the public one:
+
+```bash
+ufw allow in on ygg0 to any port <SSH_PORT> proto tcp comment 'SSH over Yggdrasil'
+ufw delete allow <SSH_PORT>/tcp
+```
+
+Weigh that carefully for SSH: it removes the server from internet-wide brute-force attempts, but it also makes Yggdrasil the only way in. If every configured peer goes down, `yggdrasil.service` fails to start after an upgrade, or `/etc/yggdrasil/yggdrasil.conf` is lost, so is your access. The node's address is derived from the private key in that file, so a lost key means a different address. Keep provider console access available, configure several peers, and back up that file before relying on this path alone.
+
 ## i2pd-timer-setup.sh
 
 `Wants=`/`After=yggdrasil.service` in the generated `i2pd.timer` only order when systemd *attempts* to start `i2pd.timer` relative to `yggdrasil.service` — they do not wait for Yggdrasil to be fully operational. This works out in practice because Yggdrasil derives its address from its own keys and assigns it immediately on start, well inside the 10-second delay. The timer only sequences startup order; it does not bind i2pd to Yggdrasil's interface or route i2pd's traffic through it.

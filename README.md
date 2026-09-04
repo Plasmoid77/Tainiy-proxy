@@ -21,14 +21,62 @@ Before piping a remote script into root Bash, inspect it if the server or reposi
 | `i2pd-timer-setup.sh` | Delay i2pd's start by 10s after `yggdrasil.service` via a systemd timer |
 | `yggdrasil-setup.sh` | Install and start a Yggdrasil mesh node |
 
-## Usage
+## Deploying on a server
+
+Run these on the server as root. Each script is independent; take only the ones you want.
 
 ```bash
-sudo bash tor-client-setup.sh
-sudo bash i2pd-setup.sh [PORT]
-sudo bash yggdrasil-setup.sh
-sudo bash i2pd-timer-setup.sh
+curl -fsSL https://raw.githubusercontent.com/Plasmoid77/TainiyProxy/main/tor-client-setup.sh | bash
 ```
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Plasmoid77/TainiyProxy/main/i2pd-setup.sh | bash
+```
+
+`i2pd-setup.sh` takes an optional transport port; without one it picks a random port in `10000-65535`. Pass it after `bash -s --`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Plasmoid77/TainiyProxy/main/i2pd-setup.sh | bash -s -- 59699
+```
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Plasmoid77/TainiyProxy/main/yggdrasil-setup.sh | bash
+```
+
+`i2pd-timer-setup.sh` expects both i2pd and Yggdrasil to be installed already, so run it last:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Plasmoid77/TainiyProxy/main/i2pd-timer-setup.sh | bash
+```
+
+Everything at once, in dependency order:
+
+```bash
+for s in tor-client-setup i2pd-setup yggdrasil-setup i2pd-timer-setup; do
+  curl -fsSL "https://raw.githubusercontent.com/Plasmoid77/TainiyProxy/main/$s.sh" | bash || break
+done
+```
+
+To inspect a script before running it as root — advisable for anything piped from the network:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Plasmoid77/TainiyProxy/main/i2pd-setup.sh -o /tmp/i2pd-setup.sh
+less /tmp/i2pd-setup.sh
+bash /tmp/i2pd-setup.sh
+```
+
+### Checking the result
+
+```bash
+systemctl is-active tor@default yggdrasil i2pd i2pd.timer
+grep '^port' /etc/i2pd/i2pd.conf    # configured i2pd transport port
+ss -ltnp | grep i2pd                # what i2pd actually listens on -- must match
+ip -6 addr show ygg0                # Yggdrasil address
+yggdrasilctl getPeers               # every peer should read Up
+curl -s --socks5-hostname 127.0.0.1:9050 https://check.torproject.org/api/ip
+```
+
+The last command should answer `{"IsTor":true,...}` with an IP other than the server's own.
 
 ## Tor
 
@@ -45,6 +93,8 @@ The UFW rules are not scoped to a network interface. An I2P router's transport p
 The repo-add step (`repo.i2pd.xyz/.help/add_repo`) is i2pd's own official installer, piped into root Bash with no checksum pinning — it adds a permanent apt source and signing key, not a one-off action. Review it if that domain is not already trusted.
 
 ## Yggdrasil
+
+The script pins the TUN interface name to `ygg0` (the package default is `IfName: auto`, which lands on `tun0` — or `tun1` if something claimed the name first). A stable name means firewall rules and resolver configuration can refer to the interface without breaking when the numbering shifts.
 
 Yggdrasil does not listen for incoming peer connections by default (`Listen` is empty out of the box) — it only makes outbound connections to the peers you configure, plus local discovery via multicast. No UFW rule is opened by this script because none is needed for that default, outbound-only mode. If you want your node to accept incoming peerings from the public network, add a `Listen` entry to `/etc/yggdrasil/yggdrasil.conf` yourself and open the matching port in UFW.
 

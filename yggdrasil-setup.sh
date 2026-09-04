@@ -30,6 +30,7 @@ apt-get install -y ca-certificates wget gnupg
 mkdir -p /usr/local/apt-keys
 
 YGGDRASIL_KEY_FINGERPRINT='1C5162E133015D81A811239D1840CDAC6011C5EA'
+YGGDRASIL_IFNAME='ygg0'
 
 # --dearmor rather than gpg --fetch-keys into a keyring: --fetch-keys needs a
 # gpg homedir plus a running dirmngr, and writes the keybox format, which APT's
@@ -57,9 +58,29 @@ echo 'deb [signed-by=/usr/local/apt-keys/yggdrasil-keyring.gpg] https://neilalex
 apt-get update
 apt-get install -y yggdrasil
 
+# The package ships IfName: auto, which lands on tun0 -- or tun1, or tun2, if
+# something else claimed the name first. Pin it so firewall rules and DNS
+# configuration can refer to the interface by name without breaking when the
+# numbering shifts.
+sed -i -E "s|^([[:space:]]*)IfName:.*$|\1IfName: $YGGDRASIL_IFNAME|" \
+  /etc/yggdrasil/yggdrasil.conf
+
 systemctl enable yggdrasil.service
 systemctl restart yggdrasil.service
 systemctl is-active --quiet yggdrasil.service
+
+# systemd reports the unit active as soon as the process starts, which is
+# before the TUN device exists, so wait for the interface rather than assume it.
+for _ in {1..15}; do
+  ip link show "$YGGDRASIL_IFNAME" >/dev/null 2>&1 && break
+  sleep 1
+done
+
+ip link show "$YGGDRASIL_IFNAME" >/dev/null 2>&1 || {
+  echo "Yggdrasil is running but did not create interface $YGGDRASIL_IFNAME." >&2
+  echo "Check: ip -6 addr ; journalctl -u yggdrasil -n 50" >&2
+  exit 1
+}
 
 # Single call: doubles as a startup check (set -e aborts if it fails) and the
 # value printed below, instead of running the binary twice.
@@ -85,5 +106,6 @@ fi
 printf '\n\033[1;32m============================================================\033[0m\n'
 printf '\033[1;32m Yggdrasil installed and running.\033[0m\n'
 printf '\033[1;32m Address: %s\033[0m\n' "$YGG_ADDRESS"
+printf '\033[1;32m Interface: %s\033[0m\n' "$YGGDRASIL_IFNAME"
 printf '\033[1;32m Config: /etc/yggdrasil/yggdrasil.conf\033[0m\n'
 printf '\033[1;32m============================================================\033[0m\n'

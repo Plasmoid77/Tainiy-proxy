@@ -30,25 +30,6 @@ if ! [[ $I2PD_PORT =~ ^[0-9]+$ ]] ||
   exit 1
 fi
 
-# Falls back through the IPv6 default route, then an explicit override, so
-# hosts without an IPv4 default route -- IPv6-only, or reachable only via a
-# meshnet transport such as Yggdrasil -- still get a scoped UFW rule instead
-# of a silently empty interface (which would otherwise make `ufw allow in on
-# ""` behave unpredictably).
-find_default_iface() {
-  awk '{ for (i = 1; i <= NF; i++) if ($i == "dev") { print $(i + 1); exit } }'
-}
-
-PUBLIC_IFACE="${PUBLIC_IFACE:-}"
-[ -n "$PUBLIC_IFACE" ] || PUBLIC_IFACE="$(ip -4 route show default | find_default_iface)"
-[ -n "$PUBLIC_IFACE" ] || PUBLIC_IFACE="$(ip -6 route show default | find_default_iface)"
-
-if [ -z "$PUBLIC_IFACE" ]; then
-  echo "Could not detect a default route interface (IPv4 or IPv6)." >&2
-  echo "Set PUBLIC_IFACE=<iface> and re-run." >&2
-  exit 1
-fi
-
 printf '\n\033[1;34m==> Installing i2pd\033[0m\n'
 
 apt-get install -y apt-transport-https ufw
@@ -99,18 +80,12 @@ ss -H -tln "sport = :$I2PD_PORT" | grep -q . || {
 
 printf '\n\033[1;34m==> Configuring i2pd firewall rules\033[0m\n'
 
-ufw allow in on "$PUBLIC_IFACE" \
-  to any port "$I2PD_PORT" proto tcp \
-  comment "i2pd NTCP2 transport"
-
-ufw allow in on "$PUBLIC_IFACE" \
-  to any port "$I2PD_PORT" proto udp \
-  comment "i2pd SSU2 transport"
+ufw allow "$I2PD_PORT/tcp" comment 'i2pd NTCP2 transport'
+ufw allow "$I2PD_PORT/udp" comment 'i2pd SSU2 transport'
 
 printf '\n\033[1;32m============================================================\033[0m\n'
 printf '\033[1;32m i2pd installed.\033[0m\n'
 printf '\033[1;32m Transport port: %s TCP/UDP\033[0m\n' "$I2PD_PORT"
-printf '\033[1;32m Public interface: %s\033[0m\n' "$PUBLIC_IFACE"
 printf '\033[1;32m Service: i2pd.service\033[0m\n'
 printf '\033[1;32m Config: /etc/i2pd/i2pd.conf\033[0m\n'
 printf '\033[1;32m============================================================\033[0m\n'

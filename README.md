@@ -38,9 +38,9 @@ Client-only mode (`ClientOnly 1`), no relaying of others' traffic. SOCKS5 proxy 
 
 **Runs as a full I2P router by default, not just a client** — i2pd relays other users' encrypted traffic and consumes host bandwidth unless you explicitly restrict it (`share`/bandwidth limits in `i2pd.conf`). Decide whether that is acceptable on your host before deploying.
 
-The script picks a random port (10000–65535) unless you pass one, writes it into `i2pd.conf`'s global `port` setting, and opens matching TCP/UDP UFW rules on the detected default-route interface. It keeps a one-time backup of the original config at `i2pd.conf.orig` before editing.
+The script picks a random port (10000–65535) unless you pass one, writes it into `i2pd.conf`'s global `port` setting, restarts i2pd, verifies the daemon is actually bound to that port, and only then opens matching TCP/UDP UFW rules. It keeps a one-time backup of the original config at `i2pd.conf.orig` before editing.
 
-Interface detection tries the IPv4 default route first, then IPv6, so it also works on IPv6-only hosts. If neither exists — e.g. a host reachable only through a meshnet transport such as Yggdrasil, with no conventional default route — the script exits with an error instead of guessing; set `PUBLIC_IFACE=<iface>` before running it to override detection.
+The UFW rules are not scoped to a network interface. An I2P router's transport port has to be reachable from the internet anyway, so restricting it to one interface buys little, while depending on an interface name means the rule silently stops matching if the host's NIC is ever renamed.
 
 The repo-add step (`repo.i2pd.xyz/.help/add_repo`) is i2pd's own official installer, piped into root Bash with no checksum pinning — it adds a permanent apt source and signing key, not a one-off action. Review it if that domain is not already trusted.
 

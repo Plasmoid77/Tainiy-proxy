@@ -11,6 +11,8 @@ YGGDRASIL_CONF='/etc/yggdrasil/yggdrasil.conf'
 PEERS=''
 TRUSTED=''
 PRIVATE_KEY_FILE=''
+CONFIG_KEY=''
+CONFIG_KEY_SRC=''
 SUPPLIED_KEY=''
 
 die() { echo "$*" >&2; exit 1; }
@@ -18,6 +20,11 @@ die() { echo "$*" >&2; exit 1; }
 usage() {
   cat >&2 <<USAGE
 Usage: bash yggdrasil-setup.sh [options]
+
+Every setting can come from the command line, from one settings file, or both:
+  --config FILE         Read settings from FILE (format below). Repeatable.
+                        Options are applied in the order given: a later
+                        --iface wins, peers and trusted addresses accumulate.
 
 Peers (without any, the node has an address but no path into the network):
   --peer URI            Public peer to configure. Repeatable. Replaces the
@@ -46,6 +53,14 @@ Interface:
                         leaves the rules written for the old name in place.
 
   -h, --help            This text
+
+Settings file: one value per line under a [section] header, # starts a
+comment, blank lines are ignored. Unknown sections are an error. Sections:
+  [peers]         one peer URI per line          (as --peer)
+  [trusted]       one Yggdrasil /128 per line    (as --trusted)
+  [private-key]   the 128 hex character key      (as --private-key-file)
+  [iface]         the interface name             (as --iface)
+Keep the file mode 600 when it holds the key.
 USAGE
 }
 
@@ -82,8 +97,41 @@ add_trusted() {
   TRUSTED="${TRUSTED}${TRUSTED:+$'\n'}$1"
 }
 
+read_config() {
+  local file="$1" section='' line mode
+  [[ -r $file ]] || die "Cannot read config file: $file"
+  mode="$(stat -c %a "$file")"
+  while IFS= read -r line || [[ -n $line ]]; do
+    line="${line%%#*}"
+    line="${line//[[:space:]]/}"
+    [[ -n $line ]] || continue
+    case "$line" in
+      \[*\])
+        section="${line:1:${#line}-2}"
+        case "$section" in
+          peers|trusted|private-key|iface) ;;
+          *) die "Unknown section [$section] in $file (expected [peers] [trusted] [private-key] [iface])" ;;
+        esac
+        continue ;;
+    esac
+    case "$section" in
+      peers)   add_peer "$line" ;;
+      trusted) add_trusted "$line" ;;
+      iface)   set_iface "$line" ;;
+      private-key)
+        [[ -z $CONFIG_KEY ]] || die "[private-key] holds more than one line, or was given twice: $file"
+        CONFIG_KEY="$line"
+        CONFIG_KEY_SRC="[private-key] in $file"
+        [[ $mode == ?00 ]] \
+          || echo "WARNING: config file holds the private key but is readable beyond its owner (mode $mode): $file" >&2 ;;
+      '') die "Value before any [section] header in $file: $line" ;;
+    esac
+  done < "$file"
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --config)     [[ $# -ge 2 ]] || die "--config needs a value"; read_config "$2"; shift 2 ;;
     --peer)       [[ $# -ge 2 ]] || die "--peer needs a value"; add_peer "$2"; shift 2 ;;
     --peers-file)
       [[ $# -ge 2 ]] || die "--peers-file needs a value"
@@ -121,9 +169,10 @@ fi
 # hardware. It is deliberately not accepted as a command-line value --
 # /proc/<pid>/cmdline is world readable, so an argument would expose the key to
 # every process on the host for the length of the run, and leave it in the
-# shell history of whoever typed it. A file or the environment keeps it out of
-# argv. Loaded before anything is installed, so a bad key fails the run before
-# it has changed the system.
+# shell history of whoever typed it. A file (its own, or a [private-key]
+# section of --config) or the environment keeps it out of argv. Loaded before
+# anything is installed, so a bad key fails the run before it has changed the
+# system.
 env_key="${YGG_PRIVATE_KEY-}"
 unset YGG_PRIVATE_KEY
 if [[ -n $PRIVATE_KEY_FILE ]]; then
@@ -133,6 +182,9 @@ if [[ -n $PRIVATE_KEY_FILE ]]; then
     || echo "WARNING: key file is readable beyond its owner (mode $mode): $PRIVATE_KEY_FILE" >&2
   SUPPLIED_KEY="$(tr -d ' \t\r\n' < "$PRIVATE_KEY_FILE")"
   key_src="$PRIVATE_KEY_FILE"
+elif [[ -n $CONFIG_KEY ]]; then
+  SUPPLIED_KEY="$CONFIG_KEY"
+  key_src="$CONFIG_KEY_SRC"
 elif [[ -n $env_key ]]; then
   SUPPLIED_KEY="$(printf '%s' "$env_key" | tr -d ' \t\r\n')"
   key_src='the YGG_PRIVATE_KEY environment variable'
@@ -192,6 +244,10 @@ printf '\n\033[1;34m==> Configuring Yggdrasil\033[0m\n'
 conf_new="$(mktemp "$YGGDRASIL_CONF.XXXXXX")"
 trap 'rm -f "$conf_new"' EXIT
 cat "$YGGDRASIL_CONF" > "$conf_new"
+
+# The interface a previous run pinned, read before it is overwritten: the UFW
+# rules below are bound to that name, so a rename has to retire them too.
+old_ifname="$(sed -nE 's/^[[:space:]]*IfName:[[:space:]]*([^[:space:]]+).*$/\1/p' "$YGGDRASIL_CONF" | head -n1)"
 
 # The package ships IfName: auto, which lands on tun0 -- or tun1, or tun2, if
 # something else claimed the name first. Pin it (ygg0 unless --iface says
@@ -269,6 +325,25 @@ printf '\n\033[1;34m==> Configuring Yggdrasil firewall rules\033[0m\n'
 # the interface to everything; the trusted addresses are prepended after it, which lands them
 # above it, and a trusted address added on a later run still ends up on top.
 # ufw refuses to add a rule that already exists, so re-running is a no-op.
+# A rename leaves the rules written for the old name behind: a deny on an
+# interface that no longer exists is dead weight, and an allow there would
+# quietly spring back to life if anything ever took that name. "ufw show added"
+# prints every user rule as the command that created it, so the ones this
+# script wrote for the old name -- recognised by the interface and the exact
+# comments used here -- are deleted by the same spec.
+if [[ -n $old_ifname && $old_ifname != auto && $old_ifname != "$YGGDRASIL_IFNAME" ]]; then
+  while IFS= read -r rule; do
+    case "$rule" in
+      "ufw deny in on $old_ifname comment 'Yggdrasil: closed unless trusted'")
+        ufw delete deny in on "$old_ifname" comment 'Yggdrasil: closed unless trusted' ;;
+      "ufw allow in on $old_ifname from "*" comment 'Yggdrasil trusted host'")
+        addr="${rule#ufw allow in on "$old_ifname" from }"
+        addr="${addr%% *}"
+        ufw delete allow in on "$old_ifname" from "$addr" comment 'Yggdrasil trusted host' ;;
+    esac
+  done < <(ufw show added)
+fi
+
 ufw prepend deny in on "$YGGDRASIL_IFNAME" comment 'Yggdrasil: closed unless trusted'
 
 if [[ -n $TRUSTED ]]; then

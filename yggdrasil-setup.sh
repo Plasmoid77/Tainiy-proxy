@@ -4,6 +4,87 @@ set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 export NEEDRESTART_MODE=a
 
+YGGDRASIL_KEY_FINGERPRINT='1C5162E133015D81A811239D1840CDAC6011C5EA'
+YGGDRASIL_IFNAME='ygg0'
+YGGDRASIL_CONF='/etc/yggdrasil/yggdrasil.conf'
+
+PEERS=''
+TRUSTED=''
+PRIVATE_KEY_FILE=''
+SUPPLIED_KEY=''
+
+die() { echo "$*" >&2; exit 1; }
+
+usage() {
+  cat >&2 <<USAGE
+Usage: bash yggdrasil-setup.sh [options]
+
+Peers (without any, the node has an address but no path into the network):
+  --peer URI            Public peer to configure. Repeatable. Replaces the
+                        current Peers list. Schemes: tls tcp quic ws wss
+                        socks sockstls
+  --peers-file FILE     Read peers from FILE, one URI per line (# = comment).
+
+Node identity:
+  --private-key-file F  Restore an existing Yggdrasil identity from file F,
+                        keeping its node address. F holds the 128 hex character
+                        private key and nothing else. The key may also be passed
+                        in the YGG_PRIVATE_KEY environment variable. It is never
+                        accepted as an argument value: /proc/<pid>/cmdline is
+                        world readable. Without either, the key the package
+                        generated on install is kept.
+
+Trusted remote access ($YGGDRASIL_IFNAME is closed by a UFW deny rule):
+  --trusted ADDR        Yggdrasil /128 allowed to reach every port on this host
+                        over $YGGDRASIL_IFNAME. Repeatable. Without any, nothing
+                        reaches this host over the mesh.
+
+  -h, --help            This text
+USAGE
+}
+
+add_peer() {
+  case "$1" in
+    tls://*|tcp://*|quic://*|ws://*|wss://*|socks://*|sockstls://*) : ;;
+    *) die "Unsupported peer URI (bad scheme): $1" ;;
+  esac
+  # The URI is written into yggdrasil.conf as a quoted HJSON string, so the
+  # two characters that would need escaping there are refused instead.
+  case "$1" in
+    *[[:space:]\"\\]*) die "Peer URI contains whitespace, a quote or a backslash: $1" ;;
+  esac
+  PEERS="${PEERS}${PEERS:+$'\n'}$1"
+}
+
+add_trusted() {
+  case "$1" in
+    */*) die "Trusted address must be a bare /128 address, no prefix length: $1" ;;
+    2??:*|3??:*) : ;;
+    *) die "Trusted address does not look like a Yggdrasil 200::/7 address: $1" ;;
+  esac
+  TRUSTED="${TRUSTED}${TRUSTED:+$'\n'}$1"
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --peer)       [[ $# -ge 2 ]] || die "--peer needs a value"; add_peer "$2"; shift 2 ;;
+    --peers-file)
+      [[ $# -ge 2 ]] || die "--peers-file needs a value"
+      [[ -r $2 ]] || die "Cannot read peers file: $2"
+      while IFS= read -r line || [[ -n $line ]]; do
+        line="${line%%#*}"
+        line="${line//[[:space:]]/}"
+        [[ -n $line ]] && add_peer "$line"
+      done < "$2"
+      shift 2 ;;
+    --trusted)    [[ $# -ge 2 ]] || die "--trusted needs a value"; add_trusted "$2"; shift 2 ;;
+    --private-key-file)
+      [[ $# -ge 2 ]] || die "--private-key-file needs a value"; PRIVATE_KEY_FILE="$2"; shift 2 ;;
+    -h|--help)    usage; exit 0 ;;
+    *)            usage; die "Unknown argument: $1" ;;
+  esac
+done
+
 if [[ $EUID -ne 0 ]]; then
   echo "Run as root: sudo bash yggdrasil-setup.sh" >&2
   exit 1
@@ -17,6 +98,36 @@ if [[ $ID != debian ]]; then
   exit 1
 fi
 
+# The private key is the node identity: supplying the old one is the only way
+# to keep an existing Yggdrasil address when redeploying or moving to new
+# hardware. It is deliberately not accepted as a command-line value --
+# /proc/<pid>/cmdline is world readable, so an argument would expose the key to
+# every process on the host for the length of the run, and leave it in the
+# shell history of whoever typed it. A file or the environment keeps it out of
+# argv. Loaded before anything is installed, so a bad key fails the run before
+# it has changed the system.
+env_key="${YGG_PRIVATE_KEY-}"
+unset YGG_PRIVATE_KEY
+if [[ -n $PRIVATE_KEY_FILE ]]; then
+  [[ -r $PRIVATE_KEY_FILE ]] || die "Cannot read private key file: $PRIVATE_KEY_FILE"
+  mode="$(stat -c %a "$PRIVATE_KEY_FILE")"
+  [[ $mode == ?00 ]] \
+    || echo "WARNING: key file is readable beyond its owner (mode $mode): $PRIVATE_KEY_FILE" >&2
+  SUPPLIED_KEY="$(tr -d ' \t\r\n' < "$PRIVATE_KEY_FILE")"
+  key_src="$PRIVATE_KEY_FILE"
+elif [[ -n $env_key ]]; then
+  SUPPLIED_KEY="$(printf '%s' "$env_key" | tr -d ' \t\r\n')"
+  key_src='the YGG_PRIVATE_KEY environment variable'
+fi
+unset env_key
+if [[ -n $SUPPLIED_KEY ]]; then
+  # Never echo the value itself, not even in an error.
+  [[ ${#SUPPLIED_KEY} -eq 128 ]] \
+    || die "Private key from $key_src is ${#SUPPLIED_KEY} characters, expected 128 hex."
+  [[ $SUPPLIED_KEY != *[!0-9a-fA-F]* ]] \
+    || die "Private key from $key_src contains non-hex characters."
+fi
+
 printf '\n\033[1;34m==> Installing Yggdrasil\033[0m\n'
 
 # Drop our own source first: a partial earlier run can leave this file behind
@@ -25,12 +136,9 @@ printf '\n\033[1;34m==> Installing Yggdrasil\033[0m\n'
 rm -f /etc/apt/sources.list.d/yggdrasil.list
 
 apt-get update
-apt-get install -y ca-certificates wget gnupg
+apt-get install -y ca-certificates wget gnupg ufw
 
 mkdir -p /usr/local/apt-keys
-
-YGGDRASIL_KEY_FINGERPRINT='1C5162E133015D81A811239D1840CDAC6011C5EA'
-YGGDRASIL_IFNAME='ygg0'
 
 # --dearmor rather than gpg --fetch-keys into a keyring: --fetch-keys needs a
 # gpg homedir plus a running dirmngr, and writes the keybox format, which APT's
@@ -58,12 +166,58 @@ echo 'deb [signed-by=/usr/local/apt-keys/yggdrasil-keyring.gpg] https://neilalex
 apt-get update
 apt-get install -y yggdrasil
 
+printf '\n\033[1;34m==> Configuring Yggdrasil\033[0m\n'
+
+# Every edit below goes to a copy; the live file is only replaced once
+# Yggdrasil itself has parsed the result, so a bad key or peer list cannot
+# leave the node with a config it refuses to start on.
+conf_new="$(mktemp "$YGGDRASIL_CONF.XXXXXX")"
+trap 'rm -f "$conf_new"' EXIT
+cat "$YGGDRASIL_CONF" > "$conf_new"
+
 # The package ships IfName: auto, which lands on tun0 -- or tun1, or tun2, if
 # something else claimed the name first. Pin it so firewall rules and DNS
 # configuration can refer to the interface by name without breaking when the
 # numbering shifts.
-sed -i -E "s|^([[:space:]]*)IfName:.*$|\1IfName: $YGGDRASIL_IFNAME|" \
-  /etc/yggdrasil/yggdrasil.conf
+sed -i -E "s|^([[:space:]]*)IfName:.*$|\1IfName: $YGGDRASIL_IFNAME|" "$conf_new"
+
+if [[ -n $SUPPLIED_KEY ]]; then
+  # Anchored on "PrivateKey:" followed by a blank, so PrivateKeyPath is left alone.
+  sed -i -E "s|^([[:space:]]*)PrivateKey:[[:space:]].*$|\1PrivateKey: $SUPPLIED_KEY|" "$conf_new"
+  grep -qF "PrivateKey: $SUPPLIED_KEY" "$conf_new" \
+    || die "No PrivateKey line found in $YGGDRASIL_CONF to replace."
+fi
+
+if [[ -n $PEERS ]]; then
+  # Replace the whole Peers block -- the one-line "Peers: []" of a fresh
+  # install, or the multi-line list a previous run wrote -- and leave every
+  # other line, comments included, exactly as it was.
+  # umask: the intermediate file carries the private key too.
+  (umask 077; awk -v peers="$PEERS" '
+    BEGIN { n = split(peers, p, "\n") }
+    skip && /^[[:space:]]*\]/ { skip = 0; next }
+    skip { next }
+    /^[[:space:]]*Peers:[[:space:]]*\[/ {
+      match($0, /^[[:space:]]*/); ind = substr($0, 1, RLENGTH)
+      printf "%sPeers: [\n", ind
+      for (i = 1; i <= n; i++) printf "%s  \"%s\"\n", ind, p[i]
+      printf "%s]\n", ind
+      if ($0 !~ /\]/) skip = 1
+      next
+    }
+    { print }
+  ' "$conf_new" > "$conf_new.awk")
+  cat "$conf_new.awk" > "$conf_new"
+  rm -f "$conf_new.awk"
+fi
+
+# Doubles as the parse check for everything edited above and as the value
+# printed at the end. A malformed key or list fails here, before the live
+# config is touched.
+YGG_ADDRESS="$(yggdrasil -useconffile "$conf_new" -address)" \
+  || die "Yggdrasil rejected the edited configuration; $YGGDRASIL_CONF was left unchanged."
+
+cat "$conf_new" > "$YGGDRASIL_CONF"
 
 systemctl enable yggdrasil.service
 systemctl restart yggdrasil.service
@@ -82,30 +236,51 @@ ip link show "$YGGDRASIL_IFNAME" >/dev/null 2>&1 || {
   exit 1
 }
 
-# Single call: doubles as a startup check (set -e aborts if it fails) and the
-# value printed below, instead of running the binary twice.
-YGG_ADDRESS="$(yggdrasil -useconffile /etc/yggdrasil/yggdrasil.conf -address)"
+printf '\n\033[1;34m==> Configuring Yggdrasil firewall rules\033[0m\n'
 
-# No UFW rule is opened here: Yggdrasil's "Listen" is empty by default, so it
-# only makes outbound peer connections plus local multicast discovery, and
-# accepts no incoming connections. Add a Listen entry in yggdrasil.conf and
-# open the matching port yourself if you want to accept incoming peerings.
+# No port is opened for Yggdrasil itself: "Listen" is empty by default, so the
+# node only makes outbound peer connections plus local multicast discovery, and
+# accepts no incoming peerings. Add a Listen entry in yggdrasil.conf and open
+# the matching port yourself if you want to accept them.
+#
+# Traffic addressed to this node arrives inside those outbound connections and
+# surfaces on ygg0 as ordinary IPv6, so UFW rules decide what answers there.
+# UFW evaluates rules in order and a plain "ufw allow <port>" is not bound to
+# an interface, so on its own it would answer over the mesh too. The deny is
+# therefore prepended -- ahead of every existing rule -- and closes ygg0 to
+# everything; the trusted addresses are prepended after it, which lands them
+# above it, and a trusted address added on a later run still ends up on top.
+# ufw refuses to add a rule that already exists, so re-running is a no-op.
+ufw prepend deny in on "$YGGDRASIL_IFNAME" comment 'Yggdrasil: closed unless trusted'
+
+if [[ -n $TRUSTED ]]; then
+  while IFS= read -r addr; do
+    ufw prepend allow in on "$YGGDRASIL_IFNAME" from "$addr" comment 'Yggdrasil trusted host'
+  done <<< "$TRUSTED"
+fi
+
+# Not enabled here: turning a firewall on without an SSH rule locks a remote
+# session out, and which port that is belongs to the host's own setup.
+ufw status | grep -q '^Status: active' || printf '\n\033[1;33m%s\n%s\033[0m\n' \
+  'WARNING: UFW is installed but inactive, so the rules above are stored but' \
+  "not enforced and $YGGDRASIL_IFNAME is fully open. Allow SSH, then: ufw enable"
 
 # A fresh install ships "Peers: []". The node then has an address but no path
 # into the network: on a VPS there are no multicast neighbours to discover
-# either, so it stays isolated until peers are added by hand.
-if grep -Eq '^[[:space:]]*Peers:[[:space:]]*\[\][[:space:]]*$' /etc/yggdrasil/yggdrasil.conf; then
-  printf '\n\033[1;33m%s\n%s\n%s\n%s\n%s\033[0m\n' \
+# either, so it stays isolated until peers are added.
+if grep -Eq '^[[:space:]]*Peers:[[:space:]]*\[\][[:space:]]*$' "$YGGDRASIL_CONF"; then
+  printf '\n\033[1;33m%s\n%s\n%s\n%s\033[0m\n' \
     'WARNING: no peers are configured, so this node is isolated from the' \
     'Yggdrasil network. Pick current peers from' \
-    'https://github.com/yggdrasil-network/public-peers, add them to the' \
-    'Peers: [] list in /etc/yggdrasil/yggdrasil.conf, then run:' \
-    '  systemctl restart yggdrasil'
+    'https://github.com/yggdrasil-network/public-peers and rerun with' \
+    '  --peer URI [--peer URI ...]'
 fi
 
 printf '\n\033[1;32m============================================================\033[0m\n'
 printf '\033[1;32m Yggdrasil installed and running.\033[0m\n'
 printf '\033[1;32m Address: %s\033[0m\n' "$YGG_ADDRESS"
 printf '\033[1;32m Interface: %s\033[0m\n' "$YGGDRASIL_IFNAME"
-printf '\033[1;32m Config: /etc/yggdrasil/yggdrasil.conf\033[0m\n'
+printf '\033[1;32m Config: %s\033[0m\n' "$YGGDRASIL_CONF"
+[[ -n $PEERS ]] && printf '\033[1;32m Peers: %s\033[0m\n' "$(printf '%s\n' "$PEERS" | wc -l)"
+[[ -n $TRUSTED ]] && printf '\033[1;32m Trusted: %s\033[0m\n' "$(printf '%s\n' "$TRUSTED" | tr '\n' ' ')"
 printf '\033[1;32m============================================================\033[0m\n'

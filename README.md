@@ -143,6 +143,15 @@ Options are applied in the order given, so a `--peer` or `--trusted` after `--co
 
 **Firewall.** The script always closes the mesh side of the host: `ufw prepend deny in on ygg0` drops everything arriving on `ygg0`, ahead of every rule that already exists — so a port allowed globally with `ufw allow <port>` stops answering over the mesh and keeps answering on the public side. Each `--trusted` address is then prepended as `ufw allow in on ygg0 from ADDR`, which puts it above the deny: that address — typically one of your own machines — reaches every port on this host, but only when the packet arrives on `ygg0`; the public interface is not widened. This is how a server becomes reachable from your clients, or a client from your server, over the mesh alone; without `--trusted`, nothing does (ICMPv6 echo excepted — UFW's `before6.rules` admit that first). Adding a trusted address later is a re-run with the new `--trusted`, or the same `ufw prepend allow ...` by hand; both land above the deny.
 
+*Adding a trusted address by hand.* A re-run pulls in apt; when all you need is one more address, write the rule exactly as the script would, so the sweep on `--iface` rename and the final summary recognise it:
+
+```bash
+ufw prepend allow in on ygg0 from <YGG_ADDRESS> comment 'Yggdrasil trusted host'
+ufw status numbered            # the new allow must sit above 'deny in on ygg0'
+```
+
+`prepend` is what keeps it above the deny — a plain `ufw allow` appends below it and never matches. The same line with `delete` instead of `prepend` removes the address again.
+
 **Enabling UFW: VPS vs. home machine.** Which default policy to enable UFW with depends on where the host sits, and the script deliberately leaves that choice to you:
 
 - *VPS* — the host faces the internet, so UFW's factory default `deny incoming` is the right one. Allow SSH first, then enable ([VPS-toolkit](https://github.com/Plasmoid77/VPS-toolkit)'s `ufw-basic-setup.sh` does exactly that). The script's `ygg0` rules then sit on top: the mesh side is closed except for `--trusted`, the public side is governed by your other rules.

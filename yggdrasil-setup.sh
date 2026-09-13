@@ -49,8 +49,9 @@ Trusted remote access ($YGGDRASIL_IFNAME is closed by a UFW deny rule):
 Interface:
   --iface NAME          TUN interface name (default: $YGGDRASIL_IFNAME). Up to
                         15 characters: letters, digits, '-' '_' '.'. The UFW
-                        rules are bound to this name; a rename on a re-run
-                        leaves the rules written for the old name in place.
+                        rules are bound to this name: on a rename the ones this
+                        script wrote for the old name are deleted and written
+                        again for the new one.
 
   -h, --help            This text
 

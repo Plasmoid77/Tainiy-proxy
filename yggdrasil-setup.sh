@@ -379,11 +379,59 @@ if grep -Eq '^[[:space:]]*Peers:[[:space:]]*\[\][[:space:]]*$' "$YGGDRASIL_CONF"
     '  --peer URI [--peer URI ...]'
 fi
 
-printf '\n\033[1;32m============================================================\033[0m\n'
-printf '\033[1;32m Yggdrasil installed and running.\033[0m\n'
-printf '\033[1;32m Address: %s\033[0m\n' "$YGG_ADDRESS"
-printf '\033[1;32m Interface: %s\033[0m\n' "$YGGDRASIL_IFNAME"
-printf '\033[1;32m Config: %s\033[0m\n' "$YGGDRASIL_CONF"
-[[ -n $PEERS ]] && printf '\033[1;32m Peers: %s\033[0m\n' "$(printf '%s\n' "$PEERS" | wc -l)"
-[[ -n $TRUSTED ]] && printf '\033[1;32m Trusted: %s\033[0m\n' "$(printf '%s\n' "$TRUSTED" | tr '\n' ' ')"
-printf '\033[1;32m============================================================\033[0m\n'
+# The summary describes the node as it now is -- read back from the live
+# config and from UFW -- not the options of this particular run, so a re-run
+# without arguments reports the same picture as the run that configured it.
+node_peers="$(awk '
+  /^[[:space:]]*Peers:[[:space:]]*\[/ { if ($0 ~ /\]/) exit; f = 1; next }
+  f && /^[[:space:]]*\]/ { exit }
+  f { gsub(/^[[:space:]]*"|"[[:space:]]*$/, ""); if ($0 != "") print }
+' "$YGGDRASIL_CONF")"
+node_trusted=''
+while IFS= read -r rule; do
+  case "$rule" in
+    "ufw allow in on $YGGDRASIL_IFNAME from "*" comment 'Yggdrasil trusted host'")
+      addr="${rule#ufw allow in on "$YGGDRASIL_IFNAME" from }"
+      node_trusted="${node_trusted}${node_trusted:+$'\n'}${addr%% *}" ;;
+  esac
+done < <(ufw show added)
+ufw_state="$(ufw status verbose 2>/dev/null)"
+fw_inactive=0
+case "$ufw_state" in
+  *'Status: active'*)
+    case "$ufw_state" in
+      *'Default: allow (incoming)'*) node_fw="active, default allow incoming -- only $YGGDRASIL_IFNAME is filtered" ;;
+      *)                             node_fw="active, default deny incoming" ;;
+    esac ;;
+  *) node_fw='INACTIVE -- the rules below are stored but not enforced'; fw_inactive=1 ;;
+esac
+# Peers connect a moment after the restart; this is the count at this instant,
+# and LAN multicast neighbours are counted too.
+links_up="$(yggdrasilctl -json getPeers 2>/dev/null | grep -c '"up": *true' || true)"
+
+G=$'\033[1;32m'; Y=$'\033[1;33m'; R=$'\033[0m'
+printf '\n%s============================================================%s\n' "$G" "$R"
+printf '%s Yggdrasil installed and running.%s\n' "$G" "$R"
+printf '%s Node address : %s%s\n' "$G" "$YGG_ADDRESS" "$R"
+printf '%s Interface    : %s%s\n' "$G" "$YGGDRASIL_IFNAME" "$R"
+printf '%s Config       : %s%s\n' "$G" "$YGGDRASIL_CONF" "$R"
+# The one line that calls for action is the one line in yellow.
+if [[ $fw_inactive -eq 1 ]]; then
+  printf '%s Firewall     : %s%s\n' "$Y" "$node_fw" "$R"
+else
+  printf '%s Firewall     : %s%s\n' "$G" "$node_fw" "$R"
+fi
+if [[ -n $node_peers ]]; then
+  printf '%s Peers        : %s configured, %s link(s) up right now (public + LAN multicast)%s\n' "$G" "$(wc -l <<< "$node_peers")" "${links_up:-0}" "$R"
+  while IFS= read -r p; do printf '%s     %s%s\n' "$G" "$p" "$R"; done <<< "$node_peers"
+else
+  printf '%s Peers        : none -- isolated until --peer is given%s\n' "$G" "$R"
+fi
+if [[ -n $node_trusted ]]; then
+  printf '%s Trusted      : %s host(s) may reach every port over %s%s\n' "$G" "$(wc -l <<< "$node_trusted")" "$YGGDRASIL_IFNAME" "$R"
+  while IFS= read -r t; do printf '%s     %s%s\n' "$G" "$t" "$R"; done <<< "$node_trusted"
+else
+  printf '%s Trusted      : none -- nothing reaches this host over %s%s\n' "$G" "$YGGDRASIL_IFNAME" "$R"
+fi
+printf '%s Check        : yggdrasilctl getPeers ; ufw status%s\n' "$G" "$R"
+printf '%s============================================================%s\n' "$G" "$R"

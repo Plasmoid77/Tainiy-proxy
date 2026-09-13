@@ -396,25 +396,31 @@ while IFS= read -r rule; do
   esac
 done < <(ufw show added)
 ufw_state="$(ufw status verbose 2>/dev/null)"
+fw_inactive=0
 case "$ufw_state" in
   *'Status: active'*)
     case "$ufw_state" in
       *'Default: allow (incoming)'*) node_fw="active, default allow incoming -- only $YGGDRASIL_IFNAME is filtered" ;;
       *)                             node_fw="active, default deny incoming" ;;
     esac ;;
-  *) node_fw='INACTIVE -- the rules below are stored but not enforced' ;;
+  *) node_fw='INACTIVE -- the rules below are stored but not enforced'; fw_inactive=1 ;;
 esac
 # Peers connect a moment after the restart; this is the count at this instant,
 # and LAN multicast neighbours are counted too.
 links_up="$(yggdrasilctl -json getPeers 2>/dev/null | grep -c '"up": *true' || true)"
 
-G=$'\033[1;32m'; R=$'\033[0m'
+G=$'\033[1;32m'; Y=$'\033[1;33m'; R=$'\033[0m'
 printf '\n%s============================================================%s\n' "$G" "$R"
 printf '%s Yggdrasil installed and running.%s\n' "$G" "$R"
 printf '%s Node address : %s%s\n' "$G" "$YGG_ADDRESS" "$R"
 printf '%s Interface    : %s%s\n' "$G" "$YGGDRASIL_IFNAME" "$R"
 printf '%s Config       : %s%s\n' "$G" "$YGGDRASIL_CONF" "$R"
-printf '%s Firewall     : %s%s\n' "$G" "$node_fw" "$R"
+# The one line that calls for action is the one line in yellow.
+if [[ $fw_inactive -eq 1 ]]; then
+  printf '%s Firewall     : %s%s\n' "$Y" "$node_fw" "$R"
+else
+  printf '%s Firewall     : %s%s\n' "$G" "$node_fw" "$R"
+fi
 if [[ -n $node_peers ]]; then
   printf '%s Peers        : %s configured, %s link(s) up right now (public + LAN multicast)%s\n' "$G" "$(wc -l <<< "$node_peers")" "${links_up:-0}" "$R"
   while IFS= read -r p; do printf '%s     %s%s\n' "$G" "$p" "$R"; done <<< "$node_peers"

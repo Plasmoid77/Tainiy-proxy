@@ -38,9 +38,10 @@ apt-get install -y apt-transport-https ufw
 # checksum pinning (trust-on-first-use). It adds a permanent apt source and
 # signing key, not a one-off action — review it if this domain is not already
 # trusted: https://repo.i2pd.xyz/.help/add_repo
-wget -q -O - \
+wget -q -O - --timeout=20 --tries=2 \
   https://repo.i2pd.xyz/.help/add_repo \
-  | bash -s -
+  | bash -s - \
+  || { echo "Cannot fetch or run the i2pd repository setup: repo.i2pd.xyz is unreachable from here." >&2; exit 1; }
 
 apt-get update
 apt-get install -y i2pd

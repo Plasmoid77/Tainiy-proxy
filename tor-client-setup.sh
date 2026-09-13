@@ -22,10 +22,12 @@ printf '\n\033[1;34m==> Installing Tor\033[0m\n'
 apt-get update
 apt-get install -y ca-certificates wget gnupg
 
-wget -qO- \
+wget -qO- --timeout=20 --tries=2 \
   https://deb.torproject.org/torproject.org/A3C4F0F979CAA22CDBA8F512EE8CBC9E886DDD89.asc \
   | gpg --dearmor \
-  > /usr/share/keyrings/deb.torproject.org-keyring.gpg
+  > /usr/share/keyrings/deb.torproject.org-keyring.gpg \
+  || { rm -f /usr/share/keyrings/deb.torproject.org-keyring.gpg
+       echo "Cannot download the Tor Project signing key: deb.torproject.org is unreachable from here." >&2; exit 1; }
 
 # Deb822 format, as in the current official Tor guide. Drop the one-line
 # tor.list an older revision of this script wrote, so apt does not end up

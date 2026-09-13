@@ -216,10 +216,16 @@ mkdir -p /usr/local/apt-keys
 # sqv verifier cannot parse -- apt-get update then fails with
 # "Failed to parse keyring ... EOF". Dearmoring is stateless, touches no
 # trustdb, and emits the classic OpenPGP binary format APT expects.
-wget -qO- \
+# --timeout/--tries (per address, so a dual-stack host can take a few minutes
+# to give up): without them a TLS handshake that stalls -- seen on an LTE
+# uplink where this host is filtered -- leaves wget waiting forever instead of
+# failing the run.
+wget -qO- --timeout=20 --tries=2 \
   https://neilalexander.s3.dualstack.eu-west-2.amazonaws.com/deb/key.txt \
   | gpg --dearmor \
-  > /usr/local/apt-keys/yggdrasil-keyring.gpg
+  > /usr/local/apt-keys/yggdrasil-keyring.gpg \
+  || { rm -f /usr/local/apt-keys/yggdrasil-keyring.gpg
+       die "Cannot download the Yggdrasil signing key: the upstream repository host is unreachable from here."; }
 
 # Pin the expected signing key, so a substituted upstream key fails loudly here
 # instead of silently authorising a different repository.
@@ -331,7 +337,9 @@ printf '\n\033[1;34m==> Configuring Yggdrasil firewall rules\033[0m\n'
 # quietly spring back to life if anything ever took that name. "ufw show added"
 # prints every user rule as the command that created it, so the ones this
 # script wrote for the old name -- recognised by the interface and the exact
-# comments used here -- are deleted by the same spec.
+# comments used here -- are deleted by the same spec. Each trusted address found
+# there joins this run's list, so the rename moves the access rather than
+# silently dropping hosts that were not repeated on the command line.
 if [[ -n $old_ifname && $old_ifname != auto && $old_ifname != "$YGGDRASIL_IFNAME" ]]; then
   while IFS= read -r rule; do
     case "$rule" in
@@ -340,7 +348,8 @@ if [[ -n $old_ifname && $old_ifname != auto && $old_ifname != "$YGGDRASIL_IFNAME
       "ufw allow in on $old_ifname from "*" comment 'Yggdrasil trusted host'")
         addr="${rule#ufw allow in on "$old_ifname" from }"
         addr="${addr%% *}"
-        ufw delete allow in on "$old_ifname" from "$addr" comment 'Yggdrasil trusted host' ;;
+        ufw delete allow in on "$old_ifname" from "$addr" comment 'Yggdrasil trusted host'
+        grep -qxF "$addr" <<< "$TRUSTED" || TRUSTED="${TRUSTED}${TRUSTED:+$'\n'}$addr" ;;
     esac
   done < <(ufw show added)
 fi

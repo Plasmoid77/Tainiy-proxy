@@ -19,7 +19,7 @@ Before piping a remote script into root Bash, inspect it if the server or reposi
 | `tor-client-setup.sh` | Install Tor as a client-only SOCKS5 proxy on `127.0.0.1:9050` |
 | `i2pd-setup.sh` | Install i2pd and open its NTCP2/SSU2 transport port in UFW |
 | `i2pd-timer-setup.sh` | Delay i2pd's start by 10s after `yggdrasil.service` via a systemd timer |
-| `yggdrasil-setup.sh` | Install and start a Yggdrasil mesh node on `ygg0`, with peers, identity and trusted addresses given at deploy time |
+| `yggdrasil-setup.sh` | Install and start a Yggdrasil mesh node on `ygg0` (or the `--iface` name), with peers, identity and trusted addresses given at deploy time |
 
 ## Deploying on a server
 
@@ -47,6 +47,8 @@ curl -fsSL https://raw.githubusercontent.com/Plasmoid77/Tainiy-proxy/main/yggdra
   --peer tcp://<PEER_HOST>:<PORT> \
   --trusted <YOUR_YGG_ADDRESS>
 ```
+
+The same settings can live in one file and be passed with `--config FILE` (format in [Yggdrasil](#yggdrasil)) — handy when the same node definition is deployed more than once.
 
 `i2pd-timer-setup.sh` expects both i2pd and Yggdrasil to be installed already, so run it last:
 
@@ -101,7 +103,7 @@ The repo-add step (`repo.i2pd.xyz/.help/add_repo`) is i2pd's own official instal
 
 ## Yggdrasil
 
-The script pins the TUN interface name to `ygg0` (the package default is `IfName: auto`, which lands on `tun0` — or `tun1` if something claimed the name first). A stable name means firewall rules and resolver configuration can refer to the interface without breaking when the numbering shifts. The name is not configurable.
+The script pins the TUN interface name to `ygg0` (the package default is `IfName: auto`, which lands on `tun0` — or `tun1` if something claimed the name first). A stable name means firewall rules and resolver configuration can refer to the interface without breaking when the numbering shifts. `--iface NAME` picks a different name (15 characters at most; letters, digits, `-`, `_`, `.`). The text below says `ygg0` for the default; with `--iface` read it as the name you gave.
 
 The same script serves a VPS and a client machine; what differs is the options given at deploy time. Every edit is made on a copy of `/etc/yggdrasil/yggdrasil.conf` that Yggdrasil must parse successfully before it replaces the live file, so a bad key or peer list leaves the running configuration untouched. Re-running the script is safe: unchanged options are no-ops, given options replace what is there.
 
@@ -111,6 +113,31 @@ The same script serves a VPS and a client machine; what differs is the options g
 | `--peers-file FILE` | Same, read from a file: one URI per line, `#` comments allowed. |
 | `--trusted ADDR` (repeatable) | Allow that Yggdrasil address through the `ygg0` deny rule the script always adds — it may then reach every port on this host, over `ygg0` only. |
 | `--private-key-file FILE` | Restore an existing identity (128 hex characters, nothing else) so the node keeps its address. Also accepted in the `YGG_PRIVATE_KEY` environment variable. |
+| `--iface NAME` | TUN interface name instead of `ygg0` (15 characters at most; letters, digits, `-`, `_`, `.`). On a rename the UFW rules this script wrote for the previous name are deleted and written again for the new one. |
+| `--config FILE` (repeatable) | Read any of the above from one settings file, see below. |
+
+**Settings file.** Everything the options above take can be kept in one file and passed with `--config`. One value per line under a `[section]` header; `#` starts a comment, blank lines are ignored, an unknown section is an error:
+
+```ini
+[peers]                 # as --peer, one URI per line
+tls://<PEER_HOST>:<PORT>
+tcp://<PEER_HOST>:<PORT>
+
+[trusted]               # as --trusted
+<YOUR_YGG_ADDRESS>
+
+[private-key]           # as --private-key-file: the 128 hex characters
+<PRIVATE_KEY>
+
+[iface]                 # as --iface
+ygg0
+```
+
+```bash
+bash yggdrasil-setup.sh --config ygg.conf
+```
+
+Options are applied in the order given, so a `--peer` or `--trusted` after `--config` is added to the file's list and a later `--iface` wins; `--config` may be repeated. When the file holds the key, keep it mode 600 — the script warns if it is readable beyond its owner. A `--private-key-file` takes precedence over the file's `[private-key]`, which takes precedence over `YGG_PRIVATE_KEY`.
 
 **Peers.** Yggdrasil does not listen for incoming peer connections by default (`Listen` is empty out of the box) — it only makes outbound connections to the peers you configure, plus local discovery via multicast. Without `--peer` the node gets its address and the service runs, but on a VPS there are no multicast neighbours to discover, so it stays isolated until peers are given — the script prints a warning when `Peers` is still empty. Pick current entries from [public-peers](https://github.com/yggdrasil-network/public-peers) and confirm afterwards with `yggdrasilctl getPeers`. No port is opened for Yggdrasil itself; if you want the node to accept incoming peerings from the public network, add a `Listen` entry to the config yourself and open the matching port in UFW.
 
@@ -123,7 +150,7 @@ awk '/^ *PrivateKey: /{print $2}' /etc/yggdrasil/yggdrasil.conf > ygg.key   # on
 bash yggdrasil-setup.sh --private-key-file ygg.key --peer ...                # on the new one
 ```
 
-The key is deliberately never taken as an argument value: `/proc/<pid>/cmdline` is world readable and arguments end up in shell history. `YGG_PRIVATE_KEY` works as well, but with `curl | bash` it has to be exported in the shell beforehand (a `VAR=... curl ...` prefix reaches only `curl`, not `bash`), and `sudo` drops it unless told otherwise — the file is the simpler path.
+The `[private-key]` section of a `--config` file is the same thing in one place with the peers and trusted addresses. The key is deliberately never taken as an argument value: `/proc/<pid>/cmdline` is world readable and arguments end up in shell history. `YGG_PRIVATE_KEY` works as well, but with `curl | bash` it has to be exported in the shell beforehand (a `VAR=... curl ...` prefix reaches only `curl`, not `bash`), and `sudo` drops it unless told otherwise — the file is the simpler path.
 
 ### Reaching the server over Yggdrasil
 

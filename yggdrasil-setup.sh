@@ -39,6 +39,12 @@ Trusted remote access ($YGGDRASIL_IFNAME is closed by a UFW deny rule):
                         over $YGGDRASIL_IFNAME. Repeatable. Without any, nothing
                         reaches this host over the mesh.
 
+Interface:
+  --iface NAME          TUN interface name (default: $YGGDRASIL_IFNAME). Up to
+                        15 characters: letters, digits, '-' '_' '.'. The UFW
+                        rules are bound to this name; a rename on a re-run
+                        leaves the rules written for the old name in place.
+
   -h, --help            This text
 USAGE
 }
@@ -54,6 +60,17 @@ add_peer() {
     *[[:space:]\"\\]*) die "Peer URI contains whitespace, a quote or a backslash: $1" ;;
   esac
   PEERS="${PEERS}${PEERS:+$'\n'}$1"
+}
+
+set_iface() {
+  # Kernel limit is IFNAMSIZ-1 = 15 bytes; the character set is kept to what
+  # both UFW and the yggdrasil.conf sed below pass through unchanged.
+  case "$1" in
+    ''|*[!A-Za-z0-9_.-]*) die "Interface name may only contain letters, digits, '-', '_' and '.': $1" ;;
+    .|..) die "Interface name may not be '.' or '..'" ;;
+  esac
+  [[ ${#1} -le 15 ]] || die "Interface name is ${#1} characters, the kernel allows 15: $1"
+  YGGDRASIL_IFNAME="$1"
 }
 
 add_trusted() {
@@ -80,6 +97,7 @@ while [[ $# -gt 0 ]]; do
     --trusted)    [[ $# -ge 2 ]] || die "--trusted needs a value"; add_trusted "$2"; shift 2 ;;
     --private-key-file)
       [[ $# -ge 2 ]] || die "--private-key-file needs a value"; PRIVATE_KEY_FILE="$2"; shift 2 ;;
+    --iface)      [[ $# -ge 2 ]] || die "--iface needs a value"; set_iface "$2"; shift 2 ;;
     -h|--help)    usage; exit 0 ;;
     *)            usage; die "Unknown argument: $1" ;;
   esac
@@ -176,9 +194,9 @@ trap 'rm -f "$conf_new"' EXIT
 cat "$YGGDRASIL_CONF" > "$conf_new"
 
 # The package ships IfName: auto, which lands on tun0 -- or tun1, or tun2, if
-# something else claimed the name first. Pin it so firewall rules and DNS
-# configuration can refer to the interface by name without breaking when the
-# numbering shifts.
+# something else claimed the name first. Pin it (ygg0 unless --iface says
+# otherwise) so firewall rules and DNS configuration can refer to the interface
+# by name without breaking when the numbering shifts.
 sed -i -E "s|^([[:space:]]*)IfName:.*$|\1IfName: $YGGDRASIL_IFNAME|" "$conf_new"
 
 if [[ -n $SUPPLIED_KEY ]]; then
@@ -244,11 +262,11 @@ printf '\n\033[1;34m==> Configuring Yggdrasil firewall rules\033[0m\n'
 # the matching port yourself if you want to accept them.
 #
 # Traffic addressed to this node arrives inside those outbound connections and
-# surfaces on ygg0 as ordinary IPv6, so UFW rules decide what answers there.
-# UFW evaluates rules in order and a plain "ufw allow <port>" is not bound to
-# an interface, so on its own it would answer over the mesh too. The deny is
-# therefore prepended -- ahead of every existing rule -- and closes ygg0 to
-# everything; the trusted addresses are prepended after it, which lands them
+# surfaces on the TUN interface as ordinary IPv6, so UFW rules decide what
+# answers there. UFW evaluates rules in order and a plain "ufw allow <port>" is
+# not bound to an interface, so on its own it would answer over the mesh too.
+# The deny is therefore prepended -- ahead of every existing rule -- and closes
+# the interface to everything; the trusted addresses are prepended after it, which lands them
 # above it, and a trusted address added on a later run still ends up on top.
 # ufw refuses to add a rule that already exists, so re-running is a no-op.
 ufw prepend deny in on "$YGGDRASIL_IFNAME" comment 'Yggdrasil: closed unless trusted'

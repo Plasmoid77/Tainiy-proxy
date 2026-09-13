@@ -6,7 +6,7 @@ These scripts install and start each service on its own. They do not chain traff
 
 ## Requirements
 
-- Debian with systemd
+- Debian with systemd (`yggdrasil-setup.sh` also accepts a derivative that declares `ID_LIKE=debian` in `/etc/os-release` — LMDE, Ubuntu, Mint — since Yggdrasil's upstream repository is the same for Debian and Ubuntu; the Tor and i2pd installers use the release codename and stay Debian-only)
 - root access
 - an existing UFW setup if you want the firewall rules of `i2pd-setup.sh` and `yggdrasil-setup.sh` to actually take effect (see [VPS-toolkit](https://github.com/Plasmoid77/VPS-toolkit)'s `ufw-basic-setup.sh`); `yggdrasil-setup.sh` needs `ufw prepend`, i.e. UFW 0.36.1+ (Debian 12 and later)
 
@@ -23,7 +23,7 @@ Before piping a remote script into root Bash, inspect it if the server or reposi
 
 ## Deploying on a server
 
-Run these on the server as root. Each script is independent; take only the ones you want.
+Run these on the server as root. Each script is independent; take only the ones you want. From a non-root shell put `sudo` on the `bash` side of the pipe — `curl ... | sudo bash -s -- ...` — not on `curl`: `sudo curl ... | bash` elevates only the download, the script still runs unprivileged and stops at its root check (curl then reports `(23) Failure writing output` because the reader has gone).
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Plasmoid77/Tainiy-proxy/main/tor-client-setup.sh | bash

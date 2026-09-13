@@ -160,8 +160,11 @@ fi
 # shellcheck disable=SC1091
 . /etc/os-release
 
-if [[ $ID != debian ]]; then
-  echo "This script is intended for Debian." >&2
+# Yggdrasil's upstream apt repository is the same one for Debian and Ubuntu,
+# so a derivative that declares itself Debian-like (LMDE, Ubuntu, Mint) is
+# fine; everything else here is plain apt, systemd and UFW.
+if [[ $ID != debian && " ${ID_LIKE:-} " != *" debian "* ]]; then
+  echo "This script is intended for Debian or a Debian derivative (ID_LIKE=debian)." >&2
   exit 1
 fi
 
